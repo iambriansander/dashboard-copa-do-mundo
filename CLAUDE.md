@@ -17,12 +17,14 @@ Single-file app: everything lives in `dashboard.py`. No modules, no tests.
 **Function call chain in `main()`:**
 ```
 load_data()          → reads/cleans 3 CSVs, cached with @st.cache_data
-get_colors(dark)     → returns theme dict (bg, card, border, text, muted, shadow, template)
-inject_css(c)        → injects CSS into Streamlit via st.markdown(unsafe_allow_html=True)
+get_colors(dark)     → returns theme dict (bg, card, border, text, muted, shadow, template + palette)
+inject_css(c)        → injects CSS (DM Sans + JetBrains Mono fonts, card hover animations)
 render_header()      → title + dark/light toggle via st.session_state.dark_mode + st.rerun()
-render_bloco1()      → "A Evolução do Futebol" — KPIs + área chart + barras
-render_bloco2()      → "Quem Dominou a Copa" — KPIs + 2 barras horizontais
-render_bloco3()      → "Números que Surpreendem" — KPIs + 3 barras horizontais
+render_hero()        → 6 panoramic KPIs (editions, goals, attendance, teams, champions, players)
+render_bloco1()      → "A Evolução do Futebol" — 4 KPIs + 4 charts (goals, attendance, GPM trend, teams)
+render_bloco2()      → "Quem Dominou a Copa" — 4 KPIs + 2 charts + Finals table
+render_bloco3()      → "Dentro de Campo" — 4 KPIs + donut + bar + Goleadas table
+render_bloco4()      → "Os Craques" — 4 KPIs + 3 charts (scorers, caps, yellow cards)
 render_footer()      → links para Kaggle e GitHub
 ```
 
