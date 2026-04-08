@@ -1,11 +1,13 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 
 st.set_page_config(
     page_title="Copa do Mundo FIFA",
     page_icon="⚽",
     layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
 
@@ -15,7 +17,6 @@ def load_data():
     df_matches = pd.read_csv("data/WorldCupMatches.csv")
     df_players = pd.read_csv("data/WorldCupPlayers.csv")
 
-    # Limpar WorldCups
     df_cups["Year"] = df_cups["Year"].astype(int)
     df_cups["Attendance"] = (
         df_cups["Attendance"]
@@ -25,7 +26,6 @@ def load_data():
         .astype(float)
     )
 
-    # Limpar WorldCupMatches
     df_matches = df_matches.dropna(subset=["Home Team Name", "Away Team Name", "Year"])
     df_matches["Year"] = df_matches["Year"].astype(int)
     df_matches["Home Team Goals"] = pd.to_numeric(
@@ -38,7 +38,6 @@ def load_data():
     df_matches["Home Team Name"] = df_matches["Home Team Name"].str.strip()
     df_matches["Away Team Name"] = df_matches["Away Team Name"].str.strip()
 
-    # Limpar WorldCupPlayers e parsear eventos
     df_players = df_players.dropna(subset=["Player Name"])
     df_players["goals"] = df_players["Event"].str.count(r"(?<![A-Z])G\d+")
     df_players["yellow_cards"] = df_players["Event"].str.count(r"Y\d+")
@@ -47,186 +46,308 @@ def load_data():
     return df_cups, df_matches, df_players
 
 
-def page_visao_geral(df_cups):
-    st.title("⚽ Visão Geral das Copas do Mundo")
+def get_colors(dark: bool) -> dict:
+    if dark:
+        return {
+            "bg": "#0e1117",
+            "card": "#1a1f2e",
+            "card_border": "#2d3748",
+            "text": "#e2e8f0",
+            "text_muted": "#94a3b8",
+            "shadow": "0 2px 12px rgba(0,0,0,0.4)",
+            "plotly_template": "plotly_dark",
+            "plot_bg": "#1a1f2e",
+            "paper_bg": "#1a1f2e",
+        }
+    return {
+        "bg": "#f8fafc",
+        "card": "#ffffff",
+        "card_border": "#e2e8f0",
+        "text": "#1e293b",
+        "text_muted": "#64748b",
+        "shadow": "0 2px 8px rgba(0,0,0,0.08)",
+        "plotly_template": "plotly_white",
+        "plot_bg": "#ffffff",
+        "paper_bg": "#ffffff",
+    }
 
-    # KPIs
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total de Copas", len(df_cups))
-    col2.metric("Total de Gols", f"{df_cups['GoalsScored'].sum():,}".replace(",", "."))
-    col3.metric("Total de Partidas", f"{df_cups['MatchesPlayed'].sum():,}".replace(",", "."))
+
+def inject_css(c: dict):
+    st.markdown(f"""
+    <style>
+    [data-testid="stAppViewContainer"] {{
+        background-color: {c['bg']};
+    }}
+    [data-testid="stHeader"] {{
+        background-color: {c['bg']};
+        border-bottom: 1px solid {c['card_border']};
+    }}
+    [data-testid="stSidebar"] {{
+        display: none;
+    }}
+    .block-container {{
+        padding-top: 1rem !important;
+        padding-bottom: 2rem !important;
+        max-width: 1400px;
+    }}
+    .kpi-card {{
+        background: {c['card']};
+        border: 1px solid {c['card_border']};
+        border-radius: 16px;
+        padding: 20px 24px;
+        box-shadow: {c['shadow']};
+        text-align: center;
+    }}
+    .kpi-label {{
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: {c['text_muted']};
+        margin-bottom: 6px;
+    }}
+    .kpi-value {{
+        font-size: 2rem;
+        font-weight: 800;
+        color: {c['text']};
+        line-height: 1.1;
+    }}
+    .kpi-sub {{
+        font-size: 0.78rem;
+        color: {c['text_muted']};
+        margin-top: 4px;
+    }}
+    .section-title {{
+        font-size: 1rem;
+        font-weight: 700;
+        color: {c['text']};
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin: 24px 0 12px 0;
+        padding-bottom: 8px;
+        border-bottom: 2px solid #00d4aa;
+        display: inline-block;
+    }}
+    .chart-card {{
+        background: {c['card']};
+        border: 1px solid {c['card_border']};
+        border-radius: 16px;
+        padding: 8px;
+        box-shadow: {c['shadow']};
+        margin-bottom: 16px;
+    }}
+    .js-plotly-plot, .plotly {{
+        border-radius: 12px;
+    }}
+    @media (max-width: 768px) {{
+        [data-testid="column"] {{
+            width: 100% !important;
+            flex: 1 1 100% !important;
+            min-width: 100% !important;
+        }}
+        .kpi-value {{
+            font-size: 1.5rem;
+        }}
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def render_header(dark: bool) -> bool:
+    """Renderiza o header e retorna o novo estado do dark mode."""
+    icon = "🌙" if not dark else "☀️"
+    label = "Modo Escuro" if not dark else "Modo Claro"
+
+    col_title, col_spacer, col_btn = st.columns([6, 2, 2])
+    with col_title:
+        st.markdown(
+            f"""<h1 style="margin:0; font-size:1.6rem; font-weight:800; color:{'#1e293b' if not dark else '#e2e8f0'};">
+            ⚽ Copa do Mundo FIFA <span style="font-size:0.9rem; font-weight:400; color:#00d4aa;">1930 – 2014</span>
+            </h1>""",
+            unsafe_allow_html=True,
+        )
+    with col_btn:
+        if st.button(f"{icon} {label}", use_container_width=True):
+            return not dark
+    return dark
+
+
+def render_kpis(df_cups, df_matches, df_players, c: dict):
+    st.markdown('<p class="section-title">Números da Competição</p>', unsafe_allow_html=True)
+
+    total_copas = len(df_cups)
+    total_gols = int(df_cups["GoalsScored"].sum())
+    total_partidas = int(df_cups["MatchesPlayed"].sum())
     idx_max = df_cups["Attendance"].idxmax()
     melhor = df_cups.loc[idx_max]
-    col4.metric(
-        "Maior Público (edição)",
-        f"{int(melhor['Attendance']):,}".replace(",", "."),
-        help=f"{int(melhor['Year'])} — {melhor['Country']}",
+    maior_publico = int(melhor["Attendance"])
+    maior_publico_ano = int(melhor["Year"])
+
+    total_selecoes = len(
+        pd.concat([df_matches["Home Team Name"], df_matches["Away Team Name"]]).unique()
     )
 
-    st.divider()
+    champions = df_cups["Winner"].value_counts()
+    maior_campeao = champions.index[0]
+    maior_campeao_titulos = int(champions.iloc[0])
 
-    # Gráfico 1: Gols por edição
-    fig1 = px.line(
-        df_cups,
-        x="Year",
-        y="GoalsScored",
-        markers=True,
-        title="Gols Marcados por Edição",
-        labels={"Year": "Ano", "GoalsScored": "Gols"},
+    artilheiros = (
+        df_players.groupby("Player Name")["goals"]
+        .sum()
+        .reset_index()
+        .sort_values("goals", ascending=False)
     )
-    fig1.update_traces(line_color="#00CC96")
-    st.plotly_chart(fig1, use_container_width=True)
+    top_scorer = artilheiros.iloc[0]
 
-    col_a, col_b = st.columns(2)
+    kpis = [
+        ("Edições", str(total_copas), "1930 a 2014"),
+        ("Gols Marcados", f"{total_gols:,}".replace(",", "."), f"{total_partidas:,} partidas".replace(",", ".")),
+        ("Maior Público", f"{maior_publico:,}".replace(",", "."), f"Copa {maior_publico_ano}"),
+        ("Seleções", str(total_selecoes), "países diferentes"),
+        ("Maior Campeão", maior_campeao, f"{maior_campeao_titulos} títulos"),
+        ("Artilheiro", top_scorer["Player Name"].split()[-1], f"{int(top_scorer['goals'])} gols"),
+    ]
 
-    # Gráfico 2: Público por edição
-    fig2 = px.bar(
-        df_cups,
-        x="Year",
-        y="Attendance",
-        title="Público Total por Edição",
-        labels={"Year": "Ano", "Attendance": "Público"},
-        color="Attendance",
-        color_continuous_scale="Blues",
+    cols = st.columns(6)
+    for col, (label, value, sub) in zip(cols, kpis):
+        with col:
+            st.markdown(
+                f"""<div class="kpi-card">
+                    <div class="kpi-label">{label}</div>
+                    <div class="kpi-value">{value}</div>
+                    <div class="kpi-sub">{sub}</div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+    st.markdown("<br>", unsafe_allow_html=True)
+
+
+def render_gols_chart(df_cups, c: dict):
+    st.markdown('<p class="section-title">Evolução Histórica</p>', unsafe_allow_html=True)
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=df_cups["Year"],
+        y=df_cups["GoalsScored"],
+        mode="lines+markers",
+        name="Gols",
+        line=dict(color="#00d4aa", width=3),
+        fill="tozeroy",
+        fillcolor="rgba(0,212,170,0.15)",
+        marker=dict(size=8, color="#00d4aa"),
+        hovertemplate="<b>%{x}</b><br>Gols: %{y}<extra></extra>",
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=df_cups["Year"],
+        y=df_cups["Attendance"],
+        mode="lines+markers",
+        name="Público",
+        yaxis="y2",
+        line=dict(color="#7c6af7", width=2, dash="dot"),
+        marker=dict(size=6, color="#7c6af7"),
+        hovertemplate="<b>%{x}</b><br>Público: %{y:,.0f}<extra></extra>",
+    ))
+
+    fig.update_layout(
+        template=c["plotly_template"],
+        paper_bgcolor=c["paper_bg"],
+        plot_bgcolor=c["plot_bg"],
+        height=280,
+        margin=dict(l=0, r=0, t=30, b=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        yaxis=dict(title="Gols", gridcolor=c["card_border"]),
+        yaxis2=dict(title="Público", overlaying="y", side="right", gridcolor="transparent"),
+        xaxis=dict(gridcolor=c["card_border"]),
+        hovermode="x unified",
     )
-    col_a.plotly_chart(fig2, use_container_width=True)
 
-    # Gráfico 3: Times classificados por edição
-    fig3 = px.bar(
-        df_cups,
-        x="Year",
-        y="QualifiedTeams",
-        title="Times Classificados por Edição",
-        labels={"Year": "Ano", "QualifiedTeams": "Times"},
-        color="QualifiedTeams",
-        color_continuous_scale="Oranges",
-    )
-    col_b.plotly_chart(fig3, use_container_width=True)
+    st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
-def page_selecoes(df_cups, df_matches):
-    st.title("🏆 Desempenho das Seleções")
+def render_teams(df_cups, df_matches, c: dict):
+    st.markdown('<p class="section-title">Seleções</p>', unsafe_allow_html=True)
 
-    # Calcular campeões
     champions = df_cups["Winner"].value_counts().reset_index()
     champions.columns = ["Seleção", "Títulos"]
 
-    # Calcular gols por seleção (mandante + visitante)
     gols_casa = df_matches.groupby("Home Team Name")["Home Team Goals"].sum().rename("Gols")
     gols_fora = df_matches.groupby("Away Team Name")["Away Team Goals"].sum().rename("Gols")
     gols_total = gols_casa.add(gols_fora, fill_value=0).reset_index()
     gols_total.columns = ["Seleção", "Gols"]
     gols_top10 = gols_total.sort_values("Gols", ascending=False).head(10)
 
-    # Participações únicas por país sede
-    sedes = df_cups["Country"].value_counts()
-
-    # KPIs
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Seleção mais Campeã", champions.iloc[0]["Seleção"], f"{champions.iloc[0]['Títulos']} títulos")
-    total_selecoes = len(
-        pd.concat([df_matches["Home Team Name"], df_matches["Away Team Name"]]).unique()
-    )
-    col2.metric("Seleções Participantes", total_selecoes)
-    col3.metric("País Sede com mais Copas", sedes.index[0], f"{sedes.iloc[0]} vez(es)")
-
-    st.divider()
-
     col_a, col_b = st.columns(2)
 
-    # Gráfico 1: Ranking de campeões
-    fig1 = px.bar(
-        champions,
-        x="Títulos",
-        y="Seleção",
-        orientation="h",
-        title="Ranking de Campeões Mundiais",
-        labels={"Títulos": "Número de Títulos", "Seleção": ""},
-        color="Títulos",
-        color_continuous_scale="Greens",
-    )
-    fig1.update_layout(yaxis={"categoryorder": "total ascending"})
-    col_a.plotly_chart(fig1, use_container_width=True)
+    with col_a:
+        fig1 = px.bar(
+            champions,
+            x="Títulos",
+            y="Seleção",
+            orientation="h",
+            title="🏆 Campeões Mundiais",
+            color="Títulos",
+            color_continuous_scale=[[0, "#00a884"], [1, "#00d4aa"]],
+            text="Títulos",
+        )
+        fig1.update_layout(
+            template=c["plotly_template"],
+            paper_bgcolor=c["paper_bg"],
+            plot_bgcolor=c["plot_bg"],
+            height=300,
+            margin=dict(l=0, r=0, t=40, b=0),
+            yaxis=dict(categoryorder="total ascending"),
+            coloraxis_showscale=False,
+            showlegend=False,
+        )
+        fig1.update_traces(textposition="outside")
+        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+        st.plotly_chart(fig1, use_container_width=True, config={"displayModeBar": False})
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # Gráfico 2: Top 10 seleções por gols
-    fig2 = px.bar(
-        gols_top10,
-        x="Gols",
-        y="Seleção",
-        orientation="h",
-        title="Top 10 Seleções por Gols Marcados",
-        labels={"Gols": "Total de Gols", "Seleção": ""},
-        color="Gols",
-        color_continuous_scale="Reds",
-    )
-    fig2.update_layout(yaxis={"categoryorder": "total ascending"})
-    col_b.plotly_chart(fig2, use_container_width=True)
+    with col_b:
+        fig2 = px.bar(
+            gols_top10,
+            x="Gols",
+            y="Seleção",
+            orientation="h",
+            title="⚽ Top 10 — Gols Marcados",
+            color="Gols",
+            color_continuous_scale=[[0, "#c0392b"], [1, "#ff6b35"]],
+            text="Gols",
+        )
+        fig2.update_layout(
+            template=c["plotly_template"],
+            paper_bgcolor=c["paper_bg"],
+            plot_bgcolor=c["plot_bg"],
+            height=300,
+            margin=dict(l=0, r=0, t=40, b=0),
+            yaxis=dict(categoryorder="total ascending"),
+            coloraxis_showscale=False,
+            showlegend=False,
+        )
+        fig2.update_traces(textposition="outside")
+        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+        st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
-def page_partidas(df_matches):
-    st.title("📊 Análise de Partidas")
+def render_players(df_matches, df_players, c: dict):
+    st.markdown('<p class="section-title">Partidas & Jogadores</p>', unsafe_allow_html=True)
 
-    # Calcular placar mais frequente
-    df_matches["Placar"] = (
-        df_matches["Home Team Goals"].astype(str)
-        + " x "
-        + df_matches["Away Team Goals"].astype(str)
-    )
-    placar_freq = df_matches["Placar"].value_counts().idxmax()
-
-    # % vitórias mandante
-    vitorias_mandante = (df_matches["Home Team Goals"] > df_matches["Away Team Goals"]).sum()
-    pct_mandante = vitorias_mandante / len(df_matches) * 100
-
-    # Média de gols por fase
+    df_matches = df_matches.copy()
     gols_fase = (
         df_matches.groupby("Stage")["Total Goals"]
         .mean()
         .reset_index()
-        .rename(columns={"Stage": "Fase", "Total Goals": "Média de Gols"})
-        .sort_values("Média de Gols", ascending=False)
+        .rename(columns={"Stage": "Fase", "Total Goals": "Média"})
+        .sort_values("Média", ascending=False)
+        .head(10)
     )
 
-    # KPIs
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Média de Gols/Jogo", f"{df_matches['Total Goals'].mean():.2f}")
-    col2.metric("Placar mais Frequente", placar_freq)
-    col3.metric("Vitórias do Mandante", f"{pct_mandante:.1f}%")
-
-    st.divider()
-
-    col_a, col_b = st.columns(2)
-
-    # Gráfico 1: Histograma de gols por partida
-    fig1 = px.histogram(
-        df_matches,
-        x="Total Goals",
-        nbins=15,
-        title="Distribuição de Gols por Partida",
-        labels={"Total Goals": "Gols na Partida", "count": "Número de Partidas"},
-        color_discrete_sequence=["#636EFA"],
-    )
-    col_a.plotly_chart(fig1, use_container_width=True)
-
-    # Gráfico 2: Média de gols por fase
-    fig2 = px.bar(
-        gols_fase,
-        x="Média de Gols",
-        y="Fase",
-        orientation="h",
-        title="Média de Gols por Fase",
-        labels={"Média de Gols": "Média de Gols", "Fase": ""},
-        color="Média de Gols",
-        color_continuous_scale="Purples",
-    )
-    fig2.update_layout(yaxis={"categoryorder": "total ascending"})
-    col_b.plotly_chart(fig2, use_container_width=True)
-
-
-def page_jogadores(df_players):
-    st.title("👤 Estatísticas de Jogadores")
-
-    # Artilheiros: agregar por nome de jogador
     artilheiros = (
         df_players.groupby("Player Name")["goals"]
         .sum()
@@ -234,82 +355,112 @@ def page_jogadores(df_players):
         .rename(columns={"Player Name": "Jogador", "goals": "Gols"})
         .sort_values("Gols", ascending=False)
     )
-    top_artilheiro = artilheiros.iloc[0]
-
-    # Convocações: número de aparições únicas por partida
     convocacoes = (
         df_players.groupby("Player Name")["MatchID"]
         .nunique()
         .reset_index()
-        .rename(columns={"Player Name": "Jogador", "MatchID": "Convocações"})
-        .sort_values("Convocações", ascending=False)
+        .rename(columns={"Player Name": "Jogador", "MatchID": "Partidas"})
+        .sort_values("Partidas", ascending=False)
     )
-    top_convocado = convocacoes.iloc[0]
 
-    total_amarelos = df_players["yellow_cards"].sum()
-    total_vermelhos = df_players["red_cards"].sum()
+    col_a, col_b, col_c = st.columns(3)
 
-    # KPIs
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Artilheiro Histórico", top_artilheiro["Jogador"], f"{int(top_artilheiro['Gols'])} gols")
-    col2.metric("Mais Convocado", top_convocado["Jogador"], f"{int(top_convocado['Convocações'])} partidas")
-    col3.metric("Cartões Amarelos", f"{int(total_amarelos):,}".replace(",", "."))
-    col4.metric("Cartões Vermelhos", f"{int(total_vermelhos):,}".replace(",", "."))
+    with col_a:
+        fig1 = px.bar(
+            gols_fase,
+            x="Média",
+            y="Fase",
+            orientation="h",
+            title="📊 Média de Gols por Fase",
+            color="Média",
+            color_continuous_scale=[[0, "#4c51bf"], [1, "#7c6af7"]],
+            text=gols_fase["Média"].round(1),
+        )
+        fig1.update_layout(
+            template=c["plotly_template"],
+            paper_bgcolor=c["paper_bg"],
+            plot_bgcolor=c["plot_bg"],
+            height=320,
+            margin=dict(l=0, r=0, t=40, b=0),
+            yaxis=dict(categoryorder="total ascending"),
+            coloraxis_showscale=False,
+        )
+        fig1.update_traces(textposition="outside")
+        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+        st.plotly_chart(fig1, use_container_width=True, config={"displayModeBar": False})
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    st.divider()
+    with col_b:
+        fig2 = px.bar(
+            artilheiros.head(12),
+            x="Gols",
+            y="Jogador",
+            orientation="h",
+            title="🥇 Top 12 Artilheiros",
+            color="Gols",
+            color_continuous_scale=[[0, "#b7791f"], [1, "#ff6b35"]],
+            text="Gols",
+        )
+        fig2.update_layout(
+            template=c["plotly_template"],
+            paper_bgcolor=c["paper_bg"],
+            plot_bgcolor=c["plot_bg"],
+            height=320,
+            margin=dict(l=0, r=0, t=40, b=0),
+            yaxis=dict(categoryorder="total ascending"),
+            coloraxis_showscale=False,
+        )
+        fig2.update_traces(textposition="outside")
+        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+        st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    col_a, col_b = st.columns(2)
-
-    # Gráfico 1: Top 15 artilheiros
-    fig1 = px.bar(
-        artilheiros.head(15),
-        x="Gols",
-        y="Jogador",
-        orientation="h",
-        title="Top 15 Artilheiros Históricos",
-        labels={"Gols": "Gols Marcados", "Jogador": ""},
-        color="Gols",
-        color_continuous_scale="YlOrRd",
-    )
-    fig1.update_layout(yaxis={"categoryorder": "total ascending"})
-    col_a.plotly_chart(fig1, use_container_width=True)
-
-    # Gráfico 2: Top 10 mais convocados
-    fig2 = px.bar(
-        convocacoes.head(10),
-        x="Convocações",
-        y="Jogador",
-        orientation="h",
-        title="Top 10 Jogadores por Convocações",
-        labels={"Convocações": "Partidas Disputadas", "Jogador": ""},
-        color="Convocações",
-        color_continuous_scale="Teal",
-    )
-    fig2.update_layout(yaxis={"categoryorder": "total ascending"})
-    col_b.plotly_chart(fig2, use_container_width=True)
+    with col_c:
+        fig3 = px.bar(
+            convocacoes.head(10),
+            x="Partidas",
+            y="Jogador",
+            orientation="h",
+            title="🌍 Top 10 Mais Convocados",
+            color="Partidas",
+            color_continuous_scale=[[0, "#065f46"], [1, "#00d4aa"]],
+            text="Partidas",
+        )
+        fig3.update_layout(
+            template=c["plotly_template"],
+            paper_bgcolor=c["paper_bg"],
+            plot_bgcolor=c["plot_bg"],
+            height=320,
+            margin=dict(l=0, r=0, t=40, b=0),
+            yaxis=dict(categoryorder="total ascending"),
+            coloraxis_showscale=False,
+        )
+        fig3.update_traces(textposition="outside")
+        st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+        st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 def main():
+    if "dark_mode" not in st.session_state:
+        st.session_state.dark_mode = False
+
     df_cups, df_matches, df_players = load_data()
 
-    with st.sidebar:
-        st.title("⚽ Copa do Mundo")
-        st.caption("Dados históricos FIFA 1930–2014")
-        st.divider()
-        pagina = st.radio(
-            "Navegação",
-            options=["Visão Geral", "Seleções", "Partidas", "Jogadores"],
-            index=0,
-        )
+    c = get_colors(st.session_state.dark_mode)
+    inject_css(c)
 
-    if pagina == "Visão Geral":
-        page_visao_geral(df_cups)
-    elif pagina == "Seleções":
-        page_selecoes(df_cups, df_matches)
-    elif pagina == "Partidas":
-        page_partidas(df_matches)
-    elif pagina == "Jogadores":
-        page_jogadores(df_players)
+    novo_dark = render_header(st.session_state.dark_mode)
+    if novo_dark != st.session_state.dark_mode:
+        st.session_state.dark_mode = novo_dark
+        st.rerun()
+
+    st.markdown("<hr style='margin: 8px 0 20px 0; opacity:0.15'>", unsafe_allow_html=True)
+
+    render_kpis(df_cups, df_matches, df_players, c)
+    render_gols_chart(df_cups, c)
+    render_teams(df_cups, df_matches, c)
+    render_players(df_matches, df_players, c)
 
 
 if __name__ == "__main__":
